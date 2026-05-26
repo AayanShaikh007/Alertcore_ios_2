@@ -62,14 +62,16 @@ What this gives you:
 - Codemagic can archive the app from the generated project.
 
 Important limitation:
-- A free Apple ID does not provide the signing assets needed to export a distributable IPA from Codemagic.
-- For a real IPA that installs through AltStore, you will still need valid signing material. In practice that means either a paid Apple Developer account or doing the free-Apple-ID signing locally with Xcode/AltServer.
+- The current Codemagic workflow only produces an `.xcarchive`.
+- The workflow now also packages the archived `.app` into an `.ipa` artifact.
+- That IPA is intended for AltStore/AltServer, which will sign it during install.
+- If Codemagic fails at the package step, the archive is still usable and the issue is usually the archive path or app name.
 
-If you want to use Codemagic for CI right now, the workflow is already set up to generate the project and archive the app. Once you add proper signing credentials, you can extend the workflow to export an IPA.
+If you want to use Codemagic for CI right now, the workflow is set up to generate the project, archive the app, and package an IPA artifact for AltStore.
 
 ## Building an IPA
 
-To create a distributable `.ipa` file for AltStore or TestFlight:
+To create a distributable `.ipa` file for AltStore or TestFlight from the archive:
 
 1. Product → Archive
 2. In the Organizer window, select your archive
@@ -79,7 +81,8 @@ To create a distributable `.ipa` file for AltStore or TestFlight:
 6. Save the `.ipa` file
 
 **Requirements:**
-- Apple Developer account (free tier works for AltStore)
+- A Mac with Xcode to export the archive into an `.ipa`
+- Apple ID signing can work for AltStore, but the export step is still separate from Codemagic's archive output
 - Valid provisioning profile
 - Device to be added to the provisioning profile
 

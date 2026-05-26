@@ -21,5 +21,16 @@ workflows:
         script: xcodebuild -resolvePackageDependencies -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
       - name: Archive app
         script: xcodebuild archive -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -configuration Release -archivePath "$CM_BUILD_DIR/build/AlertCoreApp.xcarchive" CODE_SIGNING_ALLOWED=NO
+      - name: Package IPA
+        script: |
+          set -e
+          IPA_DIR="$CM_BUILD_DIR/build/ipa"
+          APP_PATH="$CM_BUILD_DIR/build/AlertCoreApp.xcarchive/Products/Applications/AlertCoreApp.app"
+          rm -rf "$IPA_DIR"
+          mkdir -p "$IPA_DIR/Payload"
+          cp -R "$APP_PATH" "$IPA_DIR/Payload/"
+          cd "$IPA_DIR"
+          zip -qry AlertCoreApp.ipa Payload
     artifacts:
       - build/AlertCoreApp.xcarchive
+      - build/ipa/AlertCoreApp.ipa
