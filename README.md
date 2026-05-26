@@ -53,6 +53,20 @@ alertcore_ios/
    - Select a simulator or connected device
    - Press Cmd+R to build and run
 
+## Codemagic Setup
+
+This repo now includes a Codemagic-friendly scaffold via [project.yml](project.yml) and [codemagic.yaml](codemagic.yaml).
+
+What this gives you:
+- XcodeGen can generate the Xcode project from the source tree.
+- Codemagic can archive the app from the generated project.
+
+Important limitation:
+- A free Apple ID does not provide the signing assets needed to export a distributable IPA from Codemagic.
+- For a real IPA that installs through AltStore, you will still need valid signing material. In practice that means either a paid Apple Developer account or doing the free-Apple-ID signing locally with Xcode/AltServer.
+
+If you want to use Codemagic for CI right now, the workflow is already set up to generate the project and archive the app. Once you add proper signing credentials, you can extend the workflow to export an IPA.
+
 ## Building an IPA
 
 To create a distributable `.ipa` file for AltStore or TestFlight:

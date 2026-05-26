@@ -1,0 +1,25 @@
+workflows:
+  ios-codemagic:
+    name: AlertCore iOS
+    max_build_duration: 60
+    instance_type: mac_mini_m1
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: AlertCoreApp.xcodeproj
+        XCODE_SCHEME: AlertCoreApp
+    cache:
+      cache_paths:
+        - ~/.xcodegen
+        - ~/Library/Caches/CocoaPods
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: Generate Xcode project
+        script: xcodegen generate
+      - name: Resolve package dependencies
+        script: xcodebuild -resolvePackageDependencies -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
+      - name: Archive app
+        script: xcodebuild archive -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -configuration Release -archivePath "$CM_BUILD_DIR/build/AlertCoreApp.xcarchive" CODE_SIGNING_ALLOWED=NO
+    artifacts:
+      - build/AlertCoreApp.xcarchive
