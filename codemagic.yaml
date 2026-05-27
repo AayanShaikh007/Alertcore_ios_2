@@ -36,7 +36,7 @@ workflows:
       - name: Validate IPA structure and binary format
         script: |
           set -euo pipefail
-          ./scripts/validate_ipa.sh "$CM_BUILD_DIR/build/ipa/AlertCoreApp.ipa"
+          /bin/bash ./scripts/validate_ipa.sh "$CM_BUILD_DIR/build/ipa/AlertCoreApp.ipa"
     artifacts:
       - build/AlertCoreApp.xcarchive
       - build/ipa/AlertCoreApp.ipa
