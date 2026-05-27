@@ -13,7 +13,7 @@ class AppState: ObservableObject {
     @Published var history: [DistanceSampleDto] = []
     @Published var connected: Bool = false
     @Published var statusMessage: String = ""
-    @Published var notificationsEnabled: Bool = false
+    @Published var notificationsEnabled: Bool = true
     @Published var graphMinutes: Int = 60
 
     private var statusTask: Task<Void, Never>? = nil
@@ -65,10 +65,6 @@ class AppState: ObservableObject {
                     message = "Manual trigger pressed"
                 }
                 alerts.insert(AlertEvent(timestampMs: Int64(Date().timeIntervalSince1970 * 1000), message: message), at: 0)
-                // schedule a local notification for the alert if authorized
-                if notificationsEnabled {
-                    scheduleNotification(body: message)
-                }
             }
         } catch {
             connected = false
@@ -97,29 +93,31 @@ class AppState: ObservableObject {
     }
 
     // MARK: - Notifications
-    func requestNotificationAuthorization() {
+    func initializeNotificationAuthorization() {
         let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-            DispatchQueue.main.async {
-                // keep toggle in sync with actual granted state
-                self.notificationsEnabled = granted
+        center.getNotificationSettings { settings in
+            Task { @MainActor in
+                switch settings.authorizationStatus {
+                case .notDetermined:
+                    self.requestNotificationAuthorization()
+                case .authorized, .provisional, .ephemeral:
+                    self.notificationsEnabled = true
+                default:
+                    self.notificationsEnabled = false
+                }
             }
         }
     }
 
-    func initializeNotificationAuthorization() {
+    func requestNotificationAuthorization(completion: ((Bool) -> Void)? = nil) {
         let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            DispatchQueue.main.async {
-                switch settings.authorizationStatus {
-                case .authorized, .provisional, .ephemeral:
-                    self.notificationsEnabled = true
-                case .notDetermined:
-                    self.requestNotificationAuthorization()
-                case .denied:
-                    self.notificationsEnabled = false
-                @unknown default:
-                    self.notificationsEnabled = false
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            Task { @MainActor in
+                // keep toggle in sync with actual granted state
+                self.notificationsEnabled = granted
+                completion?(granted)
+                if let error = error {
+                    print("Notification authorization error: \(error)")
                 }
             }
         }
@@ -141,28 +139,22 @@ class AppState: ObservableObject {
         }
     }
 
-    func checkNotificationAuthorization() {
+    func sendTestNotification() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
-            DispatchQueue.main.async {
-                self.notificationsEnabled = (settings.authorizationStatus == .authorized)
-            }
-        }
-    }
-
-    func scheduleNotification(body: String) {
-        guard notificationsEnabled else { return }
-        let center = UNUserNotificationCenter.current()
-        let content = UNMutableNotificationContent()
-        content.title = "AlertCore"
-        content.body = body
-        content.sound = .default
-
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-        center.add(req) { error in
-            if let e = error {
-                print("Failed to schedule notification: \(e)")
+            Task { @MainActor in
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    self.scheduleTestNotification()
+                case .notDetermined:
+                    self.requestNotificationAuthorization { granted in
+                        if granted {
+                            self.scheduleTestNotification()
+                        }
+                    }
+                default:
+                    self.notificationsEnabled = false
+                }
             }
         }
     }

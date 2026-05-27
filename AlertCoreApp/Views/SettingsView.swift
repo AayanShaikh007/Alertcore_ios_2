@@ -25,12 +25,14 @@ struct SettingsView: View {
                                 state.requestNotificationAuthorization()
                             }
                         }
+                    Button("Send Test Notification") {
+                        state.sendTestNotification()
+                    }
                 }
             }
             .onAppear {
                 ipText = state.ip
                 portText = String(state.port)
-                state.checkNotificationAuthorization()
             }
             .navigationTitle("Settings")
         }

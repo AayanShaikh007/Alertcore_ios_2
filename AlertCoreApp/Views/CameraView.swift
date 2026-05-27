@@ -5,8 +5,7 @@ struct CameraView: View {
     @EnvironmentObject var state: AppState
 
     // baseline stream height to apply 1.5x scale when no explicit height exists
-    // increased to give a visibly taller stream container
-    let baselineStreamHeight: CGFloat = 300
+    let baselineStreamHeight: CGFloat = 200
 
     var body: some View {
         ScrollView {
@@ -34,9 +33,12 @@ struct CameraView: View {
                     }
                 }
 
-                CameraWebView(pageUrl: state.streamUrl)
+                CameraWebView(pageUrl: state.cameraPageUrl)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                    .frame(minHeight: baselineStreamHeight * 1.5)
                     .cornerRadius(8)
-                    .frame(height: baselineStreamHeight * 1.5)
+                    .clipped()
                     .padding()
             }
             .padding()
