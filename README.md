@@ -78,6 +78,18 @@ If you are using AltStore, keep these points in mind:
 3. The workflow now auto-detects the `.app` name inside the archive and validates that `Payload/<App>.app/Info.plist` exists in the IPA.
 4. If AltStore says the data is not in the correct format, the IPA is usually malformed (missing `Payload` or missing `.app` bundle inside it).
 
+### AltStore error: "Encountered unknown tag html"
+
+If you see errors like "Encountered unknown tag html" or plist parse failures, AltStore is usually reading an HTML page (login/redirect page) instead of the IPA binary.
+
+Use this flow:
+
+1. In Codemagic, download the `AlertCoreApp.ipa` artifact to your device/files first.
+2. Do not use a private artifact page URL directly inside AltStore sources.
+3. In iOS Files app, tap Share on the downloaded `.ipa` and choose AltStore.
+
+For URL-based AltStore sources, host the IPA at a direct public file URL that returns the IPA bytes (not an HTML page).
+
 ## Building an IPA
 
 To create a distributable `.ipa` file for AltStore or TestFlight from the archive:
