@@ -23,14 +23,20 @@ workflows:
         script: xcodebuild archive -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -configuration Release -archivePath "$CM_BUILD_DIR/build/AlertCoreApp.xcarchive" CODE_SIGNING_ALLOWED=NO
       - name: Package IPA
         script: |
-          set -e
+          set -euo pipefail
           IPA_DIR="$CM_BUILD_DIR/build/ipa"
-          APP_PATH="$CM_BUILD_DIR/build/AlertCoreApp.xcarchive/Products/Applications/AlertCoreApp.app"
+          ARCHIVE_APP_DIR="$CM_BUILD_DIR/build/AlertCoreApp.xcarchive/Products/Applications"
+          APP_PATH="$(find "$ARCHIVE_APP_DIR" -maxdepth 1 -name "*.app" | head -n 1)"
+          test -n "$APP_PATH"
           rm -rf "$IPA_DIR"
           mkdir -p "$IPA_DIR/Payload"
           cp -R "$APP_PATH" "$IPA_DIR/Payload/"
           cd "$IPA_DIR"
           zip -qry AlertCoreApp.ipa Payload
+      - name: Validate IPA structure
+        script: |
+          set -euo pipefail
+          unzip -l "$CM_BUILD_DIR/build/ipa/AlertCoreApp.ipa" | grep -E "Payload/.+\.app/Info.plist"
     artifacts:
       - build/AlertCoreApp.xcarchive
       - build/ipa/AlertCoreApp.ipa

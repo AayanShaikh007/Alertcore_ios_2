@@ -69,6 +69,15 @@ Important limitation:
 
 If you want to use Codemagic for CI right now, the workflow is set up to generate the project, archive the app, and package an IPA artifact for AltStore.
 
+### AltStore-specific notes
+
+If you are using AltStore, keep these points in mind:
+
+1. The Codemagic workflow builds an unsigned archive and then packages the `.app` into an `.ipa`.
+2. AltStore/AltServer performs signing during installation, so CI-side code signing is not required for this path.
+3. The workflow now auto-detects the `.app` name inside the archive and validates that `Payload/<App>.app/Info.plist` exists in the IPA.
+4. If AltStore says the data is not in the correct format, the IPA is usually malformed (missing `Payload` or missing `.app` bundle inside it).
+
 ## Building an IPA
 
 To create a distributable `.ipa` file for AltStore or TestFlight from the archive:
