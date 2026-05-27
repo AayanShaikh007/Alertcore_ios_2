@@ -20,6 +20,11 @@ struct SettingsView: View {
 
                 Section(header: Text("App")) {
                     Toggle("Notifications", isOn: $state.notificationsEnabled)
+                        .onChange(of: state.notificationsEnabled) { newValue in
+                            if newValue {
+                                state.requestNotificationAuthorization()
+                            }
+                        }
                 }
             }
             .onAppear {

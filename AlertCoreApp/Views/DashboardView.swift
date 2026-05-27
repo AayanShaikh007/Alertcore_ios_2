@@ -46,7 +46,13 @@ struct CardView<Content: View>: View {
     let content: Content
     init(@ViewBuilder content: () -> Content) { self.content = content() }
     var body: some View {
-        RoundedRectangle(cornerRadius: 12).fill(Color(UIColor.secondarySystemBackground)).overlay(content.padding())
+        content
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(UIColor.secondarySystemBackground))
+            )
     }
 }
 

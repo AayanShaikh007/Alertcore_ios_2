@@ -12,9 +12,11 @@ struct CameraWebView: UIViewRepresentable {
         cfg.preferences = prefs
         let web = WKWebView(frame: .zero, configuration: cfg)
         web.allowsBackForwardNavigationGestures = false
-        web.scrollView.isScrollEnabled = false
+        // allow scrolling inside the web view; the outer SwiftUI view also supports scrolling
+        web.scrollView.isScrollEnabled = true
         web.backgroundColor = UIColor.black
-        web.isOpaque = false
+        // background is black - keep the view opaque for proper rendering
+        web.isOpaque = true
         return web
     }
 

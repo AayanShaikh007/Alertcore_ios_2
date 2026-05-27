@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import UserNotifications
 
 @MainActor
 class AppState: ObservableObject {
@@ -88,6 +89,33 @@ class AppState: ObservableObject {
             objectPresent = s.objectPresent
         } catch {
             // ignore
+        }
+    }
+
+    // MARK: - Notifications
+    func requestNotificationAuthorization() {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            DispatchQueue.main.async {
+                // keep toggle in sync with actual granted state
+                self.notificationsEnabled = granted
+            }
+        }
+    }
+
+    func scheduleTestNotification(title: String = "AlertCore Test", body: String = "This is a test notification.") {
+        let center = UNUserNotificationCenter.current()
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
+        center.add(req) { error in
+            if let e = error {
+                print("Failed to schedule test notification: \(e)")
+            }
         }
     }
 }
