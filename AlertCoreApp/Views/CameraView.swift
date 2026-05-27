@@ -5,7 +5,8 @@ struct CameraView: View {
     @EnvironmentObject var state: AppState
 
     // baseline stream height to apply 1.5x scale when no explicit height exists
-    let baselineStreamHeight: CGFloat = 200
+    // increased to give a visibly taller stream container
+    let baselineStreamHeight: CGFloat = 300
 
     var body: some View {
         ScrollView {

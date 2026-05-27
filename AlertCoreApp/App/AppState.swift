@@ -65,6 +65,10 @@ class AppState: ObservableObject {
                     message = "Manual trigger pressed"
                 }
                 alerts.insert(AlertEvent(timestampMs: Int64(Date().timeIntervalSince1970 * 1000), message: message), at: 0)
+                // schedule a local notification for the alert if authorized
+                if notificationsEnabled {
+                    scheduleNotification(body: message)
+                }
             }
         } catch {
             connected = false
@@ -115,6 +119,32 @@ class AppState: ObservableObject {
         center.add(req) { error in
             if let e = error {
                 print("Failed to schedule test notification: \(e)")
+            }
+        }
+    }
+
+    func checkNotificationAuthorization() {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            DispatchQueue.main.async {
+                self.notificationsEnabled = (settings.authorizationStatus == .authorized)
+            }
+        }
+    }
+
+    func scheduleNotification(body: String) {
+        guard notificationsEnabled else { return }
+        let center = UNUserNotificationCenter.current()
+        let content = UNMutableNotificationContent()
+        content.title = "AlertCore"
+        content.body = body
+        content.sound = .default
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
+        center.add(req) { error in
+            if let e = error {
+                print("Failed to schedule notification: \(e)")
             }
         }
     }
