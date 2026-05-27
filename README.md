@@ -66,6 +66,7 @@ Important limitation:
 - The workflow now also packages the archived `.app` into an `.ipa` artifact.
 - That IPA is intended for AltStore/AltServer, which will sign it during install.
 - If Codemagic fails at the package step, the archive is still usable and the issue is usually the archive path or app name.
+- If AltStore shows `Encountered unknown tag html`, you are almost certainly pointing it at an HTML page or redirect instead of the raw IPA bytes.
 
 If you want to use Codemagic for CI right now, the workflow is set up to generate the project, archive the app, and package an IPA artifact for AltStore.
 
@@ -77,6 +78,7 @@ If you are using AltStore, keep these points in mind:
 2. AltStore/AltServer performs signing during installation, so CI-side code signing is not required for this path.
 3. The workflow now auto-detects the `.app` name inside the archive and validates that `Payload/<App>.app/Info.plist` exists in the IPA.
 4. If AltStore says the data is not in the correct format, the IPA is usually malformed (missing `Payload` or missing `.app` bundle inside it).
+5. Do not paste a Codemagic artifact page URL into AltStore. Download the `.ipa` file first, then install that file from the iOS Files app or another direct file source.
 
 ### AltStore error: "Encountered unknown tag html"
 
@@ -89,6 +91,12 @@ Use this flow:
 3. In iOS Files app, tap Share on the downloaded `.ipa` and choose AltStore.
 
 For URL-based AltStore sources, host the IPA at a direct public file URL that returns the IPA bytes (not an HTML page).
+
+For local verification, run the same IPA checks used by Codemagic:
+
+```bash
+./scripts/validate_ipa.sh /path/to/AlertCoreApp.ipa
+```
 
 ## Building an IPA
 

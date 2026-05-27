@@ -33,26 +33,10 @@ workflows:
           cp -R "$APP_PATH" "$IPA_DIR/Payload/"
           cd "$IPA_DIR"
           zip -qry AlertCoreApp.ipa Payload
-      - name: Validate IPA structure
+      - name: Validate IPA structure and binary format
         script: |
           set -euo pipefail
-          unzip -l "$CM_BUILD_DIR/build/ipa/AlertCoreApp.ipa" | grep -E "Payload/.+\.app/Info.plist"
-      - name: Validate IPA contents are not HTML
-        script: |
-          set -euo pipefail
-          IPA_PATH="$CM_BUILD_DIR/build/ipa/AlertCoreApp.ipa"
-          file "$IPA_PATH" | grep -E "Zip archive data"
-      - name: Validate bundled Info.plist parses
-        script: |
-          set -euo pipefail
-          IPA_PATH="$CM_BUILD_DIR/build/ipa/AlertCoreApp.ipa"
-          TMP_DIR="$CM_BUILD_DIR/build/ipa_check"
-          rm -rf "$TMP_DIR"
-          mkdir -p "$TMP_DIR"
-          unzip -q "$IPA_PATH" -d "$TMP_DIR"
-          INFO_PLIST="$(find "$TMP_DIR/Payload" -maxdepth 2 -path "*.app/Info.plist" | head -n 1)"
-          test -n "$INFO_PLIST"
-          /usr/bin/plutil -lint "$INFO_PLIST"
+          ./scripts/validate_ipa.sh "$CM_BUILD_DIR/build/ipa/AlertCoreApp.ipa"
     artifacts:
       - build/AlertCoreApp.xcarchive
       - build/ipa/AlertCoreApp.ipa
