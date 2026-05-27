@@ -30,6 +30,7 @@ struct SettingsView: View {
             .onAppear {
                 ipText = state.ip
                 portText = String(state.port)
+                state.checkNotificationAuthorization()
             }
             .navigationTitle("Settings")
         }

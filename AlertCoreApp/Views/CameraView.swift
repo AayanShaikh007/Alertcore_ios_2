@@ -34,7 +34,7 @@ struct CameraView: View {
                     }
                 }
 
-                CameraWebView(pageUrl: state.cameraPageUrl)
+                CameraWebView(pageUrl: state.streamUrl)
                     .cornerRadius(8)
                     .frame(height: baselineStreamHeight * 1.5)
                     .padding()

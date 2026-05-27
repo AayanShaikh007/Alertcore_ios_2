@@ -13,7 +13,7 @@ class AppState: ObservableObject {
     @Published var history: [DistanceSampleDto] = []
     @Published var connected: Bool = false
     @Published var statusMessage: String = ""
-    @Published var notificationsEnabled: Bool = true
+    @Published var notificationsEnabled: Bool = false
     @Published var graphMinutes: Int = 60
 
     private var statusTask: Task<Void, Never>? = nil
@@ -103,6 +103,24 @@ class AppState: ObservableObject {
             DispatchQueue.main.async {
                 // keep toggle in sync with actual granted state
                 self.notificationsEnabled = granted
+            }
+        }
+    }
+
+    func initializeNotificationAuthorization() {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            DispatchQueue.main.async {
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    self.notificationsEnabled = true
+                case .notDetermined:
+                    self.requestNotificationAuthorization()
+                case .denied:
+                    self.notificationsEnabled = false
+                @unknown default:
+                    self.notificationsEnabled = false
+                }
             }
         }
     }
