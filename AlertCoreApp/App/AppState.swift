@@ -448,17 +448,17 @@ private extension Data {
 
     mutating func appendUInt16LE(_ value: UInt16) {
         var little = value.littleEndian
-        withUnsafeBytes(of: &little) { append(contentsOf: $0) }
+        Swift.withUnsafeBytes(of: &little) { append(contentsOf: $0) }
     }
 
     mutating func appendUInt32LE(_ value: UInt32) {
         var little = value.littleEndian
-        withUnsafeBytes(of: &little) { append(contentsOf: $0) }
+        Swift.withUnsafeBytes(of: &little) { append(contentsOf: $0) }
     }
 
     mutating func appendInt16LE(_ value: Int16) {
         var little = value.littleEndian
-        withUnsafeBytes(of: &little) { append(contentsOf: $0) }
+        Swift.withUnsafeBytes(of: &little) { append(contentsOf: $0) }
     }
 }
 
