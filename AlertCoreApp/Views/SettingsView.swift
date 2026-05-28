@@ -25,6 +25,13 @@ struct SettingsView: View {
                                 state.requestNotificationAuthorization()
                             }
                         }
+
+                    Picker("Alert mode", selection: $state.alertPresentationMode) {
+                        ForEach(AppState.AlertPresentationMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+
                     Button("Send Test Notification") {
                         state.sendTestNotification()
                     }

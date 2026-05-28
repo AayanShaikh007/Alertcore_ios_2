@@ -5,6 +5,22 @@ import UserNotifications
 
 @MainActor
 class AppState: ObservableObject {
+    enum AlertPresentationMode: String, CaseIterable, Identifiable {
+        case autoDismiss
+        case ringUntilDismissed
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .autoDismiss:
+                return "Auto dismiss"
+            case .ringUntilDismissed:
+                return "Ring until dismissed"
+            }
+        }
+    }
+
     @Published var ip: String = "192.168.2.186"
     @Published var port: Int = 80
     @Published var distanceCm: Int? = nil
@@ -14,10 +30,16 @@ class AppState: ObservableObject {
     @Published var connected: Bool = false
     @Published var statusMessage: String = ""
     @Published var notificationsEnabled: Bool = true
+    @Published var alertPresentationMode: AlertPresentationMode = .autoDismiss
+    @Published var activeAlert: AlertEvent? = nil
     @Published var graphMinutes: Int = 60
 
     private var statusTask: Task<Void, Never>? = nil
     private var historyTask: Task<Void, Never>? = nil
+    private var lastAlertSignature: String? = nil
+    private var lastAlertAt: Date? = nil
+
+    private let persistentAlertNotificationId = "AlertCorePersistentAlert"
 
     func startPolling() async {
         stopPolling()
@@ -64,7 +86,7 @@ class AppState: ObservableObject {
                 } else {
                     message = "Manual trigger pressed"
                 }
-                alerts.insert(AlertEvent(timestampMs: Int64(Date().timeIntervalSince1970 * 1000), message: message), at: 0)
+                handleAlert(message: message, signature: "\(s.alertTransition ? "alert" : "manual"):\(s.objectPresent):\(s.distanceCm)")
             }
         } catch {
             connected = false
@@ -89,6 +111,80 @@ class AppState: ObservableObject {
             objectPresent = s.objectPresent
         } catch {
             // ignore
+        }
+    }
+
+    func acknowledgeActiveAlert() {
+        activeAlert = nil
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [persistentAlertNotificationId])
+        center.removeDeliveredNotifications(withIdentifiers: [persistentAlertNotificationId])
+    }
+
+    private func handleAlert(message: String, signature: String) {
+        let now = Date()
+        if let lastAlertSignature, let lastAlertAt, lastAlertSignature == signature, now.timeIntervalSince(lastAlertAt) < 5 {
+            return
+        }
+
+        lastAlertSignature = signature
+        lastAlertAt = now
+
+        let alert = AlertEvent(timestampMs: Int64(now.timeIntervalSince1970 * 1000), message: message)
+        alerts.insert(alert, at: 0)
+        deliverAlertNotification(message: message)
+
+        if alertPresentationMode == .ringUntilDismissed {
+            activeAlert = alert
+        }
+    }
+
+    private func deliverAlertNotification(message: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            Task { @MainActor in
+                guard self.notificationsEnabled else { return }
+
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    let content = UNMutableNotificationContent()
+                    content.title = "AlertCore"
+                    content.body = message
+                    content.sound = .default
+
+                    if self.alertPresentationMode == .ringUntilDismissed {
+                        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 60, repeats: true)
+                        let request = UNNotificationRequest(identifier: self.persistentAlertNotificationId, content: content, trigger: trigger)
+                        center.add(request) { error in
+                            if let error = error {
+                                print("Failed to schedule persistent alert notification: \(error)")
+                            }
+                        }
+
+                        let immediateRequest = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+                        center.add(immediateRequest) { error in
+                            if let error = error {
+                                print("Failed to deliver immediate alert notification: \(error)")
+                            }
+                        }
+                    } else {
+                        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+                        center.add(request) { error in
+                            if let error = error {
+                                print("Failed to deliver alert notification: \(error)")
+                            }
+                        }
+                    }
+                case .notDetermined:
+                    self.requestNotificationAuthorization { granted in
+                        if granted {
+                            self.deliverAlertNotification(message: message)
+                        }
+                    }
+                default:
+                    self.notificationsEnabled = false
+                }
+            }
         }
     }
 
