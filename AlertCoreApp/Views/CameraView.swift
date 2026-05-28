@@ -4,12 +4,12 @@ import UIKit
 struct CameraView: View {
     @EnvironmentObject var state: AppState
 
-    // baseline stream height to apply 1.5x scale when no explicit height exists
+    // baseline stream height; the live box is rendered at roughly 2x this value
     let baselineStreamHeight: CGFloat = 200
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(spacing: 8) {
                 VStack(alignment: .leading) {
                     Text("Live camera")
                         .font(.title)
@@ -35,13 +35,14 @@ struct CameraView: View {
 
                 CameraWebView(pageUrl: state.cameraPageUrl)
                     .frame(maxWidth: .infinity)
-                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
-                    .frame(minHeight: baselineStreamHeight * 1.5)
+                    .frame(height: baselineStreamHeight * 2.0)
                     .cornerRadius(8)
                     .clipped()
-                    .padding()
+                    .padding(.horizontal, 8)
+                    .padding(.top, 4)
             }
-            .padding()
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
         }
     }
 
