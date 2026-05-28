@@ -42,6 +42,7 @@ class AppState: ObservableObject {
     private var alertPlayer: AVAudioPlayer? = nil
     private var lastAlertSignature: String? = nil
     private var lastAlertAt: Date? = nil
+    private var lastAlertTimestampMs: Int64? = nil
     private var currentAlertNotificationIds: [String] = []
 
     private let persistentAlertNotificationId = "AlertCorePersistentAlert"
@@ -82,7 +83,7 @@ class AppState: ObservableObject {
         }
     }
 
-    func statusPollMs() -> Int { 1000 }
+    func statusPollMs() -> Int { 500 }
     func historyPollMs() -> Int { 3000 }
 
     func pollStatus() async {
@@ -101,7 +102,12 @@ class AppState: ObservableObject {
                 } else {
                     message = "Manual trigger pressed"
                 }
-                handleAlert(message: message, signature: "\(s.alertTransition ? "alert" : "manual"):\(s.objectPresent):\(s.distanceCm)")
+                let eventTimestampMs = s.timestampMs ?? Int64(Date().timeIntervalSince1970 * 1000)
+                handleAlert(
+                    message: message,
+                    signature: "\(s.alertTransition ? "alert" : "manual"):\(s.objectPresent):\(s.distanceCm)",
+                    timestampMs: eventTimestampMs
+                )
             }
         } catch {
             connected = false
@@ -146,14 +152,19 @@ class AppState: ObservableObject {
         }
     }
 
-    private func handleAlert(message: String, signature: String) {
+    private func handleAlert(message: String, signature: String, timestampMs: Int64) {
+        if lastAlertTimestampMs == timestampMs {
+            return
+        }
+
         let now = Date()
-        if let lastAlertSignature, let lastAlertAt, lastAlertSignature == signature, now.timeIntervalSince(lastAlertAt) < 5 {
+        if let lastAlertSignature, let lastAlertAt, lastAlertSignature == signature, now.timeIntervalSince(lastAlertAt) < 0.75 {
             return
         }
 
         lastAlertSignature = signature
         lastAlertAt = now
+        lastAlertTimestampMs = timestampMs
 
         let alert = AlertEvent(timestampMs: Int64(now.timeIntervalSince1970 * 1000), message: message)
         alerts.insert(alert, at: 0)

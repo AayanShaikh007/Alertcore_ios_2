@@ -34,7 +34,11 @@ struct RootContentView: View {
 
     var body: some View {
         ZStack {
+            Color(UIColor.systemBackground)
+                .ignoresSafeArea()
+
             MainTabView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if let activeAlert = state.activeAlert {
                 PersistentAlertOverlay(alert: activeAlert) {
@@ -43,6 +47,7 @@ struct RootContentView: View {
                 .transition(.opacity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeInOut(duration: 0.2), value: state.activeAlert?.id)
         .onChange(of: scenePhase) { newPhase in
             Task {
@@ -77,6 +82,7 @@ struct MainTabView: View {
                     Label("Settings", systemImage: "gearshape")
                 }
         }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
