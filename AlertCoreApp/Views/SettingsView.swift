@@ -32,6 +32,13 @@ struct SettingsView: View {
                         }
                     }
 
+                    if state.alertRingEnabled || state.activeAlert != nil {
+                        Button("Stop ringing now") {
+                            state.acknowledgeActiveAlert()
+                        }
+                        .foregroundColor(.red)
+                    }
+
                     Button("Send Test Notification") {
                         state.sendTestNotification()
                     }

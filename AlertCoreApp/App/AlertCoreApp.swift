@@ -1,40 +1,59 @@
 import SwiftUI
 import UserNotifications
 
-final class AlertCoreNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
-    static let shared = AlertCoreNotificationDelegate()
 
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
-                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
-    }
-}
-
-@main
-struct AlertCoreApp: App {
-    @StateObject private var state = AppState()
-
-    var body: some Scene {
-        WindowGroup {
-            ZStack {
-                MainTabView()
-                    .environmentObject(state)
-
-                if let activeAlert = state.activeAlert {
-                    PersistentAlertOverlay(alert: activeAlert) {
-                        state.acknowledgeActiveAlert()
+            RootContentView()
+                .environmentObject(state)
+            .onChange(of: scenePhase) { newPhase in
+                Task {
+                    switch newPhase {
+                    case .active:
+                        await state.refreshPollingIfNeeded(isActive: true)
+                    case .inactive, .background:
+                        state.stopPolling()
+                    @unknown default:
+                        state.stopPolling()
                     }
-                    .environmentObject(state)
-                    .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: state.activeAlert?.id)
             .task {
                 UNUserNotificationCenter.current().delegate = AlertCoreNotificationDelegate.shared
                 state.initializeNotificationAuthorization()
                 // start polling
                 await state.startPolling()
+            }
+        }
+    }
+}
+
+struct RootContentView: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        ZStack {
+            MainTabView()
+
+            if let activeAlert = state.activeAlert {
+                PersistentAlertOverlay(alert: activeAlert) {
+                    state.acknowledgeActiveAlert()
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: state.activeAlert?.id)
+        .onChange(of: scenePhase) { newPhase in
+            Task {
+                switch newPhase {
+                case .active:
+                    await state.refreshPollingIfNeeded(isActive: true)
+                case .inactive, .background:
+                    break
+                @unknown default:
+                    break
+                }
             }
         }
     }

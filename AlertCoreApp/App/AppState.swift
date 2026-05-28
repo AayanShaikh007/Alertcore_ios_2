@@ -32,12 +32,14 @@ class AppState: ObservableObject {
     @Published var notificationsEnabled: Bool = true
     @Published var alertPresentationMode: AlertPresentationMode = .autoDismiss
     @Published var activeAlert: AlertEvent? = nil
+    @Published var alertRingEnabled: Bool = false
     @Published var graphMinutes: Int = 60
 
     private var statusTask: Task<Void, Never>? = nil
     private var historyTask: Task<Void, Never>? = nil
     private var lastAlertSignature: String? = nil
     private var lastAlertAt: Date? = nil
+    private var currentAlertNotificationIds: [String] = []
 
     private let persistentAlertNotificationId = "AlertCorePersistentAlert"
 
@@ -65,6 +67,14 @@ class AppState: ObservableObject {
         historyTask?.cancel()
         statusTask = nil
         historyTask = nil
+    }
+
+    func refreshPollingIfNeeded(isActive: Bool) async {
+        if isActive {
+            await startPolling()
+        } else {
+            stopPolling()
+        }
     }
 
     func statusPollMs() -> Int { 1000 }
@@ -116,9 +126,16 @@ class AppState: ObservableObject {
 
     func acknowledgeActiveAlert() {
         activeAlert = nil
+        alertRingEnabled = false
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [persistentAlertNotificationId])
         center.removeDeliveredNotifications(withIdentifiers: [persistentAlertNotificationId])
+
+        if !currentAlertNotificationIds.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: currentAlertNotificationIds)
+            center.removeDeliveredNotifications(withIdentifiers: currentAlertNotificationIds)
+            currentAlertNotificationIds.removeAll()
+        }
     }
 
     private func handleAlert(message: String, signature: String) {
@@ -136,6 +153,7 @@ class AppState: ObservableObject {
 
         if alertPresentationMode == .ringUntilDismissed {
             activeAlert = alert
+            alertRingEnabled = true
         }
     }
 
@@ -153,20 +171,7 @@ class AppState: ObservableObject {
                     content.sound = .default
 
                     if self.alertPresentationMode == .ringUntilDismissed {
-                        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 60, repeats: true)
-                        let request = UNNotificationRequest(identifier: self.persistentAlertNotificationId, content: content, trigger: trigger)
-                        center.add(request) { error in
-                            if let error = error {
-                                print("Failed to schedule persistent alert notification: \(error)")
-                            }
-                        }
-
-                        let immediateRequest = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-                        center.add(immediateRequest) { error in
-                            if let error = error {
-                                print("Failed to deliver immediate alert notification: \(error)")
-                            }
-                        }
+                        self.schedulePersistentRingNotifications(content: content)
                     } else {
                         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
                         center.add(request) { error in
@@ -186,6 +191,45 @@ class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    private func schedulePersistentRingNotifications(content: UNMutableNotificationContent) {
+        let center = UNUserNotificationCenter.current()
+
+        if !currentAlertNotificationIds.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: currentAlertNotificationIds)
+            center.removeDeliveredNotifications(withIdentifiers: currentAlertNotificationIds)
+            currentAlertNotificationIds.removeAll()
+        }
+
+        content.sound = .default
+
+        let immediateRequest = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        center.add(immediateRequest) { error in
+            if let error = error {
+                print("Failed to deliver immediate alert notification: \(error)")
+            }
+        }
+        currentAlertNotificationIds.append(immediateRequest.identifier)
+
+        for offset in stride(from: 30, through: 300, by: 30) {
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(offset), repeats: false)
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
+            center.add(request) { error in
+                if let error = error {
+                    print("Failed to schedule repeated alert notification: \(error)")
+                }
+            }
+            currentAlertNotificationIds.append(request.identifier)
+        }
+
+        let repeatingRequest = UNNotificationRequest(identifier: persistentAlertNotificationId, content: content, trigger: UNTimeIntervalNotificationTrigger(timeInterval: 60, repeats: true))
+        center.add(repeatingRequest) { error in
+            if let error = error {
+                print("Failed to schedule repeating persistent alert notification: \(error)")
+            }
+        }
+        currentAlertNotificationIds.append(persistentAlertNotificationId)
     }
 
     // MARK: - Notifications
