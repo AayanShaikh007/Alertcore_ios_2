@@ -32,6 +32,10 @@ struct SettingsView: View {
                         }
                     }
 
+                    Text("Auto dismiss stops ringing after 10 seconds. Ring until dismissed stays active until you stop it.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
                     if state.alertRingEnabled || state.activeAlert != nil {
                         Button("Stop ringing now") {
                             state.acknowledgeActiveAlert()

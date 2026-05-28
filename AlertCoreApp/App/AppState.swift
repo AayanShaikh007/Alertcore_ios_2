@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 import UserNotifications
+import AVFoundation
 
 @MainActor
 class AppState: ObservableObject {
@@ -30,18 +31,22 @@ class AppState: ObservableObject {
     @Published var connected: Bool = false
     @Published var statusMessage: String = ""
     @Published var notificationsEnabled: Bool = true
-    @Published var alertPresentationMode: AlertPresentationMode = .autoDismiss
+    @Published var alertPresentationMode: AlertPresentationMode = .ringUntilDismissed
     @Published var activeAlert: AlertEvent? = nil
     @Published var alertRingEnabled: Bool = false
     @Published var graphMinutes: Int = 60
 
     private var statusTask: Task<Void, Never>? = nil
     private var historyTask: Task<Void, Never>? = nil
+    private var alertAutoStopTask: Task<Void, Never>? = nil
+    private var alertPlayer: AVAudioPlayer? = nil
     private var lastAlertSignature: String? = nil
     private var lastAlertAt: Date? = nil
     private var currentAlertNotificationIds: [String] = []
 
     private let persistentAlertNotificationId = "AlertCorePersistentAlert"
+    private let alertToneFileName = "AlertCoreTone.wav"
+    private let alertAutoDismissSeconds: TimeInterval = 10
 
     func startPolling() async {
         stopPolling()
@@ -127,6 +132,9 @@ class AppState: ObservableObject {
     func acknowledgeActiveAlert() {
         activeAlert = nil
         alertRingEnabled = false
+        alertAutoStopTask?.cancel()
+        alertAutoStopTask = nil
+        stopAlertTone()
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [persistentAlertNotificationId])
         center.removeDeliveredNotifications(withIdentifiers: [persistentAlertNotificationId])
@@ -149,45 +157,55 @@ class AppState: ObservableObject {
 
         let alert = AlertEvent(timestampMs: Int64(now.timeIntervalSince1970 * 1000), message: message)
         alerts.insert(alert, at: 0)
-        deliverAlertNotification(message: message)
-
-        if alertPresentationMode == .ringUntilDismissed {
-            activeAlert = alert
-            alertRingEnabled = true
-        }
+        presentAlert(alert: alert)
     }
 
-    private func deliverAlertNotification(message: String) {
+    private func presentAlert(alert: AlertEvent) {
+        activeAlert = alert
+        alertRingEnabled = true
+        playAlertTone(persistent: alertPresentationMode == .ringUntilDismissed)
+
+        if alertPresentationMode == .autoDismiss {
+            alertAutoStopTask?.cancel()
+            alertAutoStopTask = Task { [weak self] in
+                guard let self = self else { return }
+                try? await Task.sleep(nanoseconds: UInt64(self.alertAutoDismissSeconds * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.stopAlertTone()
+                    self.activeAlert = nil
+                    self.alertRingEnabled = false
+                }
+            }
+        }
+
+        scheduleAlertNotification(message: alert.message, persistent: alertPresentationMode == .ringUntilDismissed)
+    }
+
+    private func scheduleAlertNotification(message: String, persistent: Bool) {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             Task { @MainActor in
                 guard self.notificationsEnabled else { return }
+                guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional || settings.authorizationStatus == .ephemeral else {
+                    return
+                }
 
-                switch settings.authorizationStatus {
-                case .authorized, .provisional, .ephemeral:
-                    let content = UNMutableNotificationContent()
-                    content.title = "AlertCore"
-                    content.body = message
-                    content.sound = .default
+                let sound = self.alertNotificationSound()
+                let content = UNMutableNotificationContent()
+                content.title = "AlertCore"
+                content.body = message
+                content.sound = sound
 
-                    if self.alertPresentationMode == .ringUntilDismissed {
-                        self.schedulePersistentRingNotifications(content: content)
-                    } else {
-                        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-                        center.add(request) { error in
-                            if let error = error {
-                                print("Failed to deliver alert notification: \(error)")
-                            }
+                if persistent {
+                    self.schedulePersistentRingNotifications(content: content)
+                } else {
+                    let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+                    center.add(request) { error in
+                        if let error = error {
+                            print("Failed to deliver alert notification: \(error)")
                         }
                     }
-                case .notDetermined:
-                    self.requestNotificationAuthorization { granted in
-                        if granted {
-                            self.deliverAlertNotification(message: message)
-                        }
-                    }
-                default:
-                    self.notificationsEnabled = false
                 }
             }
         }
@@ -202,8 +220,6 @@ class AppState: ObservableObject {
             currentAlertNotificationIds.removeAll()
         }
 
-        content.sound = .default
-
         let immediateRequest = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         center.add(immediateRequest) { error in
             if let error = error {
@@ -212,7 +228,7 @@ class AppState: ObservableObject {
         }
         currentAlertNotificationIds.append(immediateRequest.identifier)
 
-        for offset in stride(from: 30, through: 300, by: 30) {
+        for offset in stride(from: 10, through: 300, by: 10) {
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(offset), repeats: false)
             let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
             center.add(request) { error in
@@ -230,6 +246,129 @@ class AppState: ObservableObject {
             }
         }
         currentAlertNotificationIds.append(persistentAlertNotificationId)
+    }
+
+    private func stopAlertTone() {
+        alertPlayer?.stop()
+        alertPlayer = nil
+        try? AVAudioSession.sharedInstance().setActive(false)
+    }
+
+    private func playAlertTone(persistent: Bool) {
+        alertAutoStopTask?.cancel()
+        alertAutoStopTask = nil
+
+        guard let toneURL = prepareAlertToneFile() else {
+            return
+        }
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+
+            let player = try AVAudioPlayer(contentsOf: toneURL)
+            player.numberOfLoops = persistent ? -1 : 0
+            player.volume = 1.0
+            player.prepareToPlay()
+            player.play()
+            alertPlayer = player
+            alertRingEnabled = true
+
+            if !persistent {
+                alertAutoStopTask = Task { [weak self] in
+                    guard let self = self else { return }
+                    try? await Task.sleep(nanoseconds: UInt64(self.alertAutoDismissSeconds * 1_000_000_000))
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        self.stopAlertTone()
+                        self.alertRingEnabled = false
+                    }
+                }
+            }
+        } catch {
+            print("Failed to start alert tone playback: \(error)")
+        }
+    }
+
+    private func alertNotificationSound() -> UNNotificationSound {
+        let _ = prepareAlertToneFile()
+        return UNNotificationSound(named: UNNotificationSoundName(alertToneFileName))
+    }
+
+    private func prepareAlertToneFile() -> URL? {
+        do {
+            let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+            let soundsDirectory = libraryURL?.appendingPathComponent("Sounds", isDirectory: true)
+            guard let soundsDirectory else { return nil }
+            try FileManager.default.createDirectory(at: soundsDirectory, withIntermediateDirectories: true)
+
+            let toneURL = soundsDirectory.appendingPathComponent(alertToneFileName)
+            if FileManager.default.fileExists(atPath: toneURL.path) {
+                return toneURL
+            }
+
+            let sampleRate: Int = 44_100
+            let durationSeconds: Int = 10
+            let totalSamples = sampleRate * durationSeconds
+            var pcm = Data()
+            pcm.reserveCapacity(totalSamples * 2)
+
+            for sampleIndex in 0..<totalSamples {
+                let progress = Double(sampleIndex) / Double(sampleRate)
+                let tonePhase = progress.truncatingRemainder(dividingBy: 1.0)
+                let isTone = tonePhase < 0.35 || (tonePhase >= 0.5 && tonePhase < 0.85)
+                let fadeWindow = 0.02
+                let envelope: Double
+                if tonePhase < fadeWindow {
+                    envelope = tonePhase / fadeWindow
+                } else if tonePhase < 0.35 - fadeWindow {
+                    envelope = 1.0
+                } else if tonePhase < 0.35 {
+                    envelope = max(0.0, (0.35 - tonePhase) / fadeWindow)
+                } else if tonePhase < 0.5 {
+                    envelope = 0.0
+                } else if tonePhase < 0.5 + fadeWindow {
+                    envelope = (tonePhase - 0.5) / fadeWindow
+                } else if tonePhase < 0.85 - fadeWindow {
+                    envelope = 1.0
+                } else if tonePhase < 0.85 {
+                    envelope = max(0.0, (0.85 - tonePhase) / fadeWindow)
+                } else {
+                    envelope = 0.0
+                }
+
+                let amplitude = isTone ? 0.45 * envelope : 0.0
+                let frequency = 880.0
+                let sample = Int16(sin(2.0 * Double.pi * frequency * progress) * amplitude * Double(Int16.max))
+                pcm.appendInt16LE(sample)
+            }
+
+            var wav = Data()
+            let subchunk2Size = UInt32(pcm.count)
+            let chunkSize = UInt32(36) + subchunk2Size
+
+            wav.appendASCII("RIFF")
+            wav.appendUInt32LE(chunkSize)
+            wav.appendASCII("WAVE")
+            wav.appendASCII("fmt ")
+            wav.appendUInt32LE(16)
+            wav.appendUInt16LE(1)
+            wav.appendUInt16LE(1)
+            wav.appendUInt32LE(UInt32(sampleRate))
+            wav.appendUInt32LE(UInt32(sampleRate * 2))
+            wav.appendUInt16LE(2)
+            wav.appendUInt16LE(16)
+            wav.appendASCII("data")
+            wav.appendUInt32LE(subchunk2Size)
+            wav.append(pcm)
+
+            try wav.write(to: toneURL, options: .atomic)
+            return toneURL
+        } catch {
+            print("Failed to prepare alert tone file: \(error)")
+            return nil
+        }
     }
 
     // MARK: - Notifications
@@ -297,6 +436,29 @@ class AppState: ObservableObject {
                 }
             }
         }
+    }
+}
+
+private extension Data {
+    mutating func appendASCII(_ string: String) {
+        if let data = string.data(using: .ascii) {
+            append(data)
+        }
+    }
+
+    mutating func appendUInt16LE(_ value: UInt16) {
+        var little = value.littleEndian
+        withUnsafeBytes(of: &little) { append(contentsOf: $0) }
+    }
+
+    mutating func appendUInt32LE(_ value: UInt32) {
+        var little = value.littleEndian
+        withUnsafeBytes(of: &little) { append(contentsOf: $0) }
+    }
+
+    mutating func appendInt16LE(_ value: Int16) {
+        var little = value.littleEndian
+        withUnsafeBytes(of: &little) { append(contentsOf: $0) }
     }
 }
 
