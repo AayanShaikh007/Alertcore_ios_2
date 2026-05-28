@@ -22,6 +22,7 @@ alertcore_ios/
 │   ├── Components/             # Reusable UI components
 │   │   └── CameraWebView.swift
 │   └── Resources/              # Assets, images, etc.
+├── backend/                    # APNs backend that watches the firmware API
 ├── README.md
 └── .gitignore
 ```
@@ -143,3 +144,6 @@ The app expects the ESP32 to provide:
 - HTTP cleartext is required for LAN communication with the ESP32
 - The app polls the ESP32 status every 1 second and history every 3 seconds (configurable in `AppState`)
 - Manual button press notifications are included if the firmware supports the `manualTransition` flag
+- The bundled custom alert tone lives at `AlertCoreApp/Resources/AlertCoreTone.wav`
+- The APNs backend scaffold lives in `backend/` and polls the stable firmware API without changing the firmware contract
+- For background alert reliability on iPhone, the backend sends repeated pushes at roughly `0s`, `15s`, and `30s` using the custom sound

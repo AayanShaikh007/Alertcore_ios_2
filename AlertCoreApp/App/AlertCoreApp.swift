@@ -1,5 +1,18 @@
 import SwiftUI
 import UserNotifications
+import UIKit
+
+final class AlertCoreAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        PushNotificationManager.shared.handleRegisteredDeviceToken(deviceToken)
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        PushNotificationManager.shared.handleRegistrationFailure(error)
+    }
+}
 
 final class AlertCoreNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     static let shared = AlertCoreNotificationDelegate()
@@ -13,6 +26,7 @@ final class AlertCoreNotificationDelegate: NSObject, UNUserNotificationCenterDel
 
 @main
 struct AlertCoreApp: App {
+    @UIApplicationDelegateAdaptor(AlertCoreAppDelegate.self) private var appDelegate
     @StateObject private var state = AppState()
 
     var body: some Scene {
@@ -22,6 +36,8 @@ struct AlertCoreApp: App {
                 .task {
                     UNUserNotificationCenter.current().delegate = AlertCoreNotificationDelegate.shared
                     state.initializeNotificationAuthorization()
+                    PushNotificationManager.shared.requestRemoteNotifications()
+                    PushNotificationManager.shared.syncRegisteredTokenToBackendIfAvailable()
                     await state.startPolling()
                 }
         }
