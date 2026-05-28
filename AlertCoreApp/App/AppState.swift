@@ -309,6 +309,10 @@ class AppState: ObservableObject {
 
     private func prepareAlertToneFile() -> URL? {
         do {
+            if let bundledToneURL = Bundle.main.url(forResource: "AlertCoreTone", withExtension: "wav") {
+                return bundledToneURL
+            }
+
             let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             let soundsDirectory = libraryURL?.appendingPathComponent("Sounds", isDirectory: true)
             guard let soundsDirectory else { return nil }
