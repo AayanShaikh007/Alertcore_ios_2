@@ -4,8 +4,8 @@ import UIKit
 struct CameraView: View {
     @EnvironmentObject var state: AppState
 
-    // baseline stream height; the live box is rendered at roughly 2x this value
-    let baselineStreamHeight: CGFloat = 200
+    // baseline stream height; the live box is rendered at a fixed 600pt height
+    let baselineStreamHeight: CGFloat = 300
 
     var body: some View {
         ScrollView {
@@ -35,7 +35,7 @@ struct CameraView: View {
 
                 CameraWebView(pageUrl: state.cameraPageUrl)
                     .frame(maxWidth: .infinity)
-                    .frame(height: baselineStreamHeight * 2.0)
+                    .frame(height: 600)
                     .cornerRadius(8)
                     .clipped()
                     .padding(.horizontal, 8)
