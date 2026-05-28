@@ -6,10 +6,10 @@ struct CameraWebView: UIViewRepresentable {
     let pageUrl: String
 
     func makeUIView(context: Context) -> WKWebView {
-        let prefs = WKPreferences()
-        prefs.javaScriptEnabled = true
         let cfg = WKWebViewConfiguration()
-        cfg.preferences = prefs
+        let webpagePreferences = WKWebpagePreferences()
+        webpagePreferences.allowsContentJavaScript = true
+        cfg.defaultWebpagePreferences = webpagePreferences
         let web = WKWebView(frame: .zero, configuration: cfg)
         web.allowsBackForwardNavigationGestures = false
         // allow scrolling inside the web view; the outer SwiftUI view also supports scrolling
@@ -22,13 +22,17 @@ struct CameraWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         guard let url = URL(string: pageUrl) else { return }
+                if uiView.url?.absoluteString == pageUrl {
+                        return
+                }
+
         let isStream = pageUrl.contains("/stream")
         if isStream {
             let html = """
             <html>
               <head>
                 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-                <style>html,body{margin:0;background:#000;height:100%;}img{width:100%;height:100%;object-fit:contain;display:block;}</style>
+                                <style>html,body{margin:0;background:#000;width:100%;height:100%;overflow:hidden;}img{position:fixed;inset:0;width:100vw;height:100vh;object-fit:cover;display:block;}</style>
               </head>
               <body>
                 <img src=\"
