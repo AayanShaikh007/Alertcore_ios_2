@@ -31,6 +31,8 @@ struct AlertCoreApp: App {
 struct RootContentView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("hasShownBackgroundRefreshPrompt") private var hasShownBackgroundRefreshPrompt = false
+    @State private var showBackgroundRefreshPrompt = false
 
     var body: some View {
         ZStack {
@@ -49,6 +51,22 @@ struct RootContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeInOut(duration: 0.2), value: state.activeAlert?.id)
+        .onAppear {
+            if !hasShownBackgroundRefreshPrompt {
+                showBackgroundRefreshPrompt = true
+            }
+        }
+        .alert("Enable background updates", isPresented: $showBackgroundRefreshPrompt) {
+            Button("Open Settings") {
+                hasShownBackgroundRefreshPrompt = true
+                openAppSettings()
+            }
+            Button("Not Now", role: .cancel) {
+                hasShownBackgroundRefreshPrompt = true
+            }
+        } message: {
+            Text("iPhone does not let apps request Background App Refresh directly. If you want AlertCore to stay more responsive in the background, open Settings and keep Background App Refresh on for the app, plus allow Notifications and Local Network access.")
+        }
         .onChange(of: scenePhase) { newPhase in
             Task {
                 if newPhase == .active {
@@ -56,6 +74,11 @@ struct RootContentView: View {
                 }
             }
         }
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 }
 

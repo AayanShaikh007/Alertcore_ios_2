@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
@@ -19,6 +20,15 @@ struct SettingsView: View {
                 }
 
                 Section(header: Text("App")) {
+                    Button("Open iPhone Settings") {
+                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                        UIApplication.shared.open(url)
+                    }
+
+                    Text("Use iPhone Settings to keep Notifications, Local Network, and Background App Refresh enabled for AlertCore.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
                     Toggle("Notifications", isOn: $state.notificationsEnabled)
                         .onChange(of: state.notificationsEnabled) { newValue in
                             if newValue {
