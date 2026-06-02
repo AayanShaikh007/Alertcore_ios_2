@@ -38,6 +38,17 @@ struct SettingsView: View {
                             }
                         }
 
+                    Picker("Threshold alerts", selection: $state.alertTriggerMode) {
+                        ForEach(AppState.AlertTriggerMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text("Default alerts only when the device leaves the threshold. Choose Entering or Both if you want earlier alerts.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
                     Picker("Alert mode", selection: $state.alertPresentationMode) {
                         ForEach(AppState.AlertPresentationMode.allCases) { mode in
                             Text(mode.title).tag(mode)

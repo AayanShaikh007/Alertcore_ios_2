@@ -6,6 +6,25 @@ import AVFoundation
 
 @MainActor
 class AppState: ObservableObject {
+    enum AlertTriggerMode: String, CaseIterable, Identifiable {
+        case leavingThreshold
+        case enteringThreshold
+        case both
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .leavingThreshold:
+                return "Leaving"
+            case .enteringThreshold:
+                return "Entering"
+            case .both:
+                return "Both"
+            }
+        }
+    }
+
     enum AlertPresentationMode: String, CaseIterable, Identifiable {
         case autoDismiss
         case ringUntilDismissed
@@ -31,6 +50,11 @@ class AppState: ObservableObject {
     @Published var connected: Bool = false
     @Published var statusMessage: String = ""
     @Published var notificationsEnabled: Bool = true
+    @Published var alertTriggerMode: AlertTriggerMode = Self.loadAlertTriggerMode() {
+        didSet {
+            UserDefaults.standard.set(alertTriggerMode.rawValue, forKey: Self.alertTriggerModeDefaultsKey)
+        }
+    }
     @Published var alertPresentationMode: AlertPresentationMode = .ringUntilDismissed
     @Published var activeAlert: AlertEvent? = nil
     @Published var alertRingEnabled: Bool = false
@@ -45,9 +69,19 @@ class AppState: ObservableObject {
     private var lastAlertTimestampMs: Int64? = nil
     private var currentAlertNotificationIds: [String] = []
 
+    private static let alertTriggerModeDefaultsKey = "alertTriggerMode"
     private let persistentAlertNotificationId = "AlertCorePersistentAlert"
     private let alertToneFileName = "AlertCoreTone.wav"
     private let alertAutoDismissSeconds: TimeInterval = 10
+
+    private static func loadAlertTriggerMode() -> AlertTriggerMode {
+        guard let rawValue = UserDefaults.standard.string(forKey: Self.alertTriggerModeDefaultsKey),
+              let mode = AlertTriggerMode(rawValue: rawValue) else {
+            return .leavingThreshold
+        }
+
+        return mode
+    }
 
     func startPolling() async {
         stopPolling()
@@ -94,10 +128,11 @@ class AppState: ObservableObject {
             distanceCm = s.distanceCm >= 0 ? s.distanceCm : nil
             objectPresent = s.objectPresent
 
-            let hasAlert = s.alertTransition || (s.manualTransition ?? false)
+            let hasThresholdAlert = s.alertTransition && shouldPresentThresholdAlert(for: s)
+            let hasAlert = hasThresholdAlert || (s.manualTransition ?? false)
             if hasAlert {
                 let message: String
-                if s.alertTransition {
+                if hasThresholdAlert {
                     message = s.objectPresent ? "Object entered threshold at \(s.distanceCm) cm" : "Object exited threshold range"
                 } else {
                     message = "Manual trigger pressed"
@@ -105,7 +140,7 @@ class AppState: ObservableObject {
                 let eventTimestampMs = s.timestampMs ?? Int64(Date().timeIntervalSince1970 * 1000)
                 handleAlert(
                     message: message,
-                    signature: "\(s.alertTransition ? "alert" : "manual"):\(s.objectPresent):\(s.distanceCm)",
+                    signature: "\(hasThresholdAlert ? "alert" : "manual"):\(s.objectPresent):\(s.distanceCm)",
                     timestampMs: eventTimestampMs
                 )
             }
@@ -132,6 +167,19 @@ class AppState: ObservableObject {
             objectPresent = s.objectPresent
         } catch {
             // ignore
+        }
+    }
+
+    private func shouldPresentThresholdAlert(for status: StatusDto) -> Bool {
+        guard status.alertTransition else { return false }
+
+        switch alertTriggerMode {
+        case .leavingThreshold:
+            return !status.objectPresent
+        case .enteringThreshold:
+            return status.objectPresent
+        case .both:
+            return true
         }
     }
 
