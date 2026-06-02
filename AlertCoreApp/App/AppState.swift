@@ -50,7 +50,7 @@ class AppState: ObservableObject {
     @Published var connected: Bool = false
     @Published var statusMessage: String = ""
     @Published var notificationsEnabled: Bool = true
-    @Published var alertTriggerMode: AlertTriggerMode = Self.loadAlertTriggerMode() {
+    @Published var alertTriggerMode: AlertTriggerMode {
         didSet {
             UserDefaults.standard.set(alertTriggerMode.rawValue, forKey: Self.alertTriggerModeDefaultsKey)
         }
@@ -81,6 +81,10 @@ class AppState: ObservableObject {
         }
 
         return mode
+    }
+
+    init() {
+        alertTriggerMode = Self.loadAlertTriggerMode()
     }
 
     func startPolling() async {
