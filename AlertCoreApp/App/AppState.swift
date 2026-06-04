@@ -41,7 +41,7 @@ class AppState: ObservableObject {
         }
     }
 
-    @Published var ip: String = "192.168.2.186"
+    @Published var ip: String = "192.168.8.50"
     @Published var port: Int = 80
     @Published var distanceCm: Int? = nil
     @Published var objectPresent: Bool = false

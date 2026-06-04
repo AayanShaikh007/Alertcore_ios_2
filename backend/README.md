@@ -14,7 +14,7 @@ This service watches the stable ESP32 firmware API and sends repeated APNs pushe
 See [.env.example](.env.example).
 
 Important values:
-- `FIRMWARE_BASE_URL` - the ESP32 base URL, for example `http://192.168.2.186`
+- `FIRMWARE_BASE_URL` - the ESP32 base URL, for example `http://192.168.8.50`
 - `APNS_TEAM_ID` - Apple Developer team ID
 - `APNS_KEY_ID` - APNs auth key ID
 - `APNS_KEY_PATH` - path to the `.p8` key file
