@@ -3,6 +3,7 @@ import Combine
 import SwiftUI
 import UserNotifications
 import AVFoundation
+import Network
 
 @MainActor
 class AppState: ObservableObject {
@@ -89,6 +90,8 @@ class AppState: ObservableObject {
 
     func startPolling() async {
         stopPolling()
+        triggerLocalNetworkPrivacyPrompt()
+        
         statusTask = Task { [weak self] in
             guard let self = self else { return }
             while !Task.isCancelled {
@@ -121,8 +124,11 @@ class AppState: ObservableObject {
         }
     }
 
-    func statusPollMs() -> Int { 500 }
-    func historyPollMs() -> Int { 3000 }
+    func statusPollMs() -> Int { 
+        // poll slower when disconnected to give the network/ESP32 room to recover
+        connected ? 500 : 2000 
+    }
+    func historyPollMs() -> Int { connected ? 3000 : 10000 }
 
     func pollStatus() async {
         do {
@@ -502,6 +508,22 @@ class AppState: ObservableObject {
                     self.notificationsEnabled = false
                 }
             }
+        }
+    }
+
+    /// Triggers the iOS Local Network privacy prompt by starting a dummy browse.
+    private func triggerLocalNetworkPrivacyPrompt() {
+        let browser = NWBrowser(for: .bonjour(type: "_http._tcp", domain: nil), using: .tcp)
+        browser.stateUpdateHandler = { state in
+            if case .failed = state {
+                browser.cancel()
+            }
+        }
+        browser.start(queue: .main)
+        
+        // cancel after a short delay; the prompt will have been triggered
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            browser.cancel()
         }
     }
 }
