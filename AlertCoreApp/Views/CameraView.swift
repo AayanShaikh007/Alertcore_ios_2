@@ -42,17 +42,19 @@ struct CameraView: View {
                     // Image Frame Container
                     VStack(spacing: 12) {
                         if let image = state.cameraImage {
-                            Image(uiImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 320)
-                                .cornerRadius(12)
-                                .clipped()
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                                )
+                            GeometryReader { geometry in
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: geometry.size.width, height: 320)
+                                    .clipped()
+                            }
+                            .frame(height: 320)
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
                         } else {
                             VStack(spacing: 16) {
                                 Image(systemName: "photo.fill")
