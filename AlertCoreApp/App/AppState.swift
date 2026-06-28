@@ -190,7 +190,7 @@ class AppState: ObservableObject {
         client.password = mqttPassword
         client.keepAlive = 60
         client.enableSSL = true
-        client.allowUntrustCACert = true
+        client.allowUntrustCACertificate = true
 
         client.didConnectAck = { [weak self] mqtt, ack in
             guard let self = self else { return }
@@ -313,7 +313,7 @@ class AppState: ObservableObject {
 
     // MARK: - Commands
     func updateThreshold(_ t: Int) {
-        guard let client = mqtt, client.isConnected else {
+        guard let client = mqtt, client.connState == .connected else {
             statusMessage = "Cannot update threshold: MQTT disconnected"
             return
         }
@@ -324,7 +324,7 @@ class AppState: ObservableObject {
     }
 
     func publishAlertModeToMqtt() {
-        guard let client = mqtt, client.isConnected else { return }
+        guard let client = mqtt, client.connState == .connected else { return }
         let modeInt = alertTriggerMode == .stateChange ? 0 : 1
         let payload = "{\"alertMode\":\(modeInt)}"
         client.publish("alertcore/cmd/alert_mode", withString: payload, qos: .qos1)
@@ -332,7 +332,7 @@ class AppState: ObservableObject {
     }
 
     func publishPeriodicRefreshToMqtt() {
-        guard let client = mqtt, client.isConnected else { return }
+        guard let client = mqtt, client.connState == .connected else { return }
         let val = periodicRefreshEnabled ? 1 : 0
         let payload = "{\"periodicRefresh\":\(val)}"
         client.publish("alertcore/cmd/periodic_refresh", withString: payload, qos: .qos1)
@@ -340,7 +340,7 @@ class AppState: ObservableObject {
     }
 
     func publishPhotoOnAlertToMqtt() {
-        guard let client = mqtt, client.isConnected else { return }
+        guard let client = mqtt, client.connState == .connected else { return }
         let val = photoOnAlertEnabled ? 1 : 0
         let payload = "{\"photoOnAlert\":\(val)}"
         client.publish("alertcore/cmd/photo_on_alert", withString: payload, qos: .qos1)
@@ -348,12 +348,12 @@ class AppState: ObservableObject {
     }
 
     func triggerManualCapture() {
-        guard let client = mqtt, client.isConnected else {
+        guard let client = mqtt, client.connState == .connected else {
             statusMessage = "Cannot capture: MQTT disconnected"
             return
         }
-        let payload: [UInt8] = [1]
-        client.publish("alertcore/cmd/capture", withRawPayload: payload, qos: .qos1)
+        let message = CocoaMQTTMessage(topic: "alertcore/cmd/capture", payload: [1], qos: .qos1, retained: false)
+        client.publish(message)
         statusMessage = "Manual capture command sent"
     }
 

@@ -316,7 +316,7 @@ struct HistoryChart: View {
                             )
 
                             Path { path in
-                                path.move(to: points[0].x, points[0].y)
+                                path.move(to: points[0])
                                 if points.count == 1 {
                                     path.addLine(to: CGPoint(x: points[0].x + 10, y: points[0].y))
                                 } else {
