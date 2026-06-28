@@ -305,7 +305,7 @@ struct HistoryChart: View {
                                     path.addLine(to: p)
                                 }
                                 path.addLine(to: CGPoint(x: points.last!.x, y: h))
-                                path.close()
+                                path.closeSubpath()
                             }
                             .fill(
                                 LinearGradient(

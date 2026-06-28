@@ -44,7 +44,7 @@ struct CameraView: View {
                         if let image = state.cameraImage {
                             Image(uiImage: image)
                                 .resizable()
-                                .aspectRatio(content: .fill)
+                                .aspectRatio(contentMode: .fill)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 320)
                                 .cornerRadius(12)
