@@ -8,6 +8,9 @@ struct StatusDto: Codable {
     let manualTransition: Bool?
     let thresholdCm: Int?
     let timestampMs: Int64?
+    let zones: [Int]?
+    let periodicRefresh: Int?
+    let photoOnAlert: Int?
 }
 
 struct DistanceSampleDto: Codable {

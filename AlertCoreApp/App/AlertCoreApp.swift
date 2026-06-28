@@ -52,11 +52,12 @@ struct RootContentView: View {
 
     var body: some View {
         ZStack {
-            Color(UIColor.systemBackground)
+            Color.black
                 .ignoresSafeArea()
 
             MainTabView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .preferredColorScheme(.dark)
 
             if let activeAlert = state.activeAlert {
                 PersistentAlertOverlay(alert: activeAlert) {
@@ -121,7 +122,7 @@ struct MainTabView: View {
                     Label("Settings", systemImage: "gearshape")
                 }
         }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -131,39 +132,73 @@ struct PersistentAlertOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.6)
+            Color.black.opacity(0.75)
                 .ignoresSafeArea()
 
-            VStack(spacing: 16) {
-                Image(systemName: "bell.badge.fill")
-                    .font(.system(size: 42, weight: .bold))
-                    .foregroundColor(.white)
+            VStack(spacing: 20) {
+                // Warning pulsing glow ring
+                ZStack {
+                    Circle()
+                        .fill(Theme.accentCoral.opacity(0.15))
+                        .frame(width: 80, height: 80)
+                    
+                    Circle()
+                        .stroke(Theme.accentCoral, lineWidth: 3)
+                        .frame(width: 60, height: 60)
+                        .shadow(color: Theme.accentCoral, radius: 10)
+                    
+                    Image(systemName: "bell.badge.fill")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                .padding(.top, 10)
 
-                Text("AlertCore Alert")
-                    .font(.title2.weight(.bold))
-                    .foregroundColor(.white)
-
-                Text(alert.message)
-                    .font(.body)
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
+                VStack(spacing: 8) {
+                    Text("ALERT TRIGGERED")
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .foregroundColor(Theme.accentCoral)
+                        .tracking(2)
+                    
+                    Text(alert.message)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 10)
 
                 Button(action: dismissAction) {
-                    Text("Dismiss")
-                        .fontWeight(.semibold)
+                    Text("Acknowledge & Mute")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.white)
-                        .foregroundColor(.red)
+                        .padding(.vertical, 14)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.white, Color.white.opacity(0.9)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                         .cornerRadius(12)
+                        .shadow(color: .white.opacity(0.2), radius: 8, x: 0, y: 4)
                 }
             }
-            .padding(24)
-            .background(
+            .padding(28)
+            .background(.ultraThinMaterial)
+            .cornerRadius(24)
+            .overlay(
                 RoundedRectangle(cornerRadius: 24)
-                    .fill(Color.red.opacity(0.92))
+                    .stroke(
+                        LinearGradient(
+                            colors: [Theme.accentCoral, Theme.accentCoral.opacity(0.2)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 2
+                    )
             )
-            .padding(.horizontal, 24)
+            .shadow(color: Theme.accentCoral.opacity(0.3), radius: 20, x: 0, y: 10)
+            .padding(.horizontal, 30)
         }
     }
 }

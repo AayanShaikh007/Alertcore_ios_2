@@ -3,25 +3,22 @@ import Combine
 import SwiftUI
 import UserNotifications
 import AVFoundation
-import Network
+import CocoaMQTT
 
 @MainActor
 class AppState: ObservableObject {
     enum AlertTriggerMode: String, CaseIterable, Identifiable {
-        case leavingThreshold
-        case enteringThreshold
-        case both
+        case stateChange
+        case farToNear
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .leavingThreshold:
-                return "Leaving"
-            case .enteringThreshold:
-                return "Entering"
-            case .both:
-                return "Both"
+            case .stateChange:
+                return "Option 1: Alert on Distance State Changes"
+            case .farToNear:
+                return "Option 2: Alert Only After \"Far -> Near\" Transition"
             }
         }
     }
@@ -42,27 +39,89 @@ class AppState: ObservableObject {
         }
     }
 
-    @Published var ip: String = "192.168.8.50"
-    @Published var port: Int = 80
+    // MQTT connection settings, persisted locally
+    @Published var mqttHost: String {
+        didSet {
+            UserDefaults.standard.set(mqttHost, forKey: "mqttHost")
+            connectMqtt()
+        }
+    }
+    @Published var mqttPort: Int {
+        didSet {
+            UserDefaults.standard.set(mqttPort, forKey: "mqttPort")
+            connectMqtt()
+        }
+    }
+    @Published var mqttUsername: String {
+        didSet {
+            UserDefaults.standard.set(mqttUsername, forKey: "mqttUsername")
+            connectMqtt()
+        }
+    }
+    @Published var mqttPassword: String {
+        didSet {
+            UserDefaults.standard.set(mqttPassword, forKey: "mqttPassword")
+            connectMqtt()
+        }
+    }
+
+    // Sensor State
     @Published var distanceCm: Int? = nil
     @Published var objectPresent: Bool = false
+    @Published var thresholdCm: Int {
+        didSet {
+            UserDefaults.standard.set(thresholdCm, forKey: "thresholdCm")
+        }
+    }
+    @Published var zonesCm: [Int] = []
+    
+    // Alerts and History
     @Published var alerts: [AlertEvent] = []
     @Published var history: [DistanceSampleDto] = []
     @Published var connected: Bool = false
-    @Published var statusMessage: String = ""
+    @Published var statusMessage: String = "Disconnected"
     @Published var notificationsEnabled: Bool = true
+    
+    // Alert Mode Settings
     @Published var alertTriggerMode: AlertTriggerMode {
         didSet {
             UserDefaults.standard.set(alertTriggerMode.rawValue, forKey: Self.alertTriggerModeDefaultsKey)
+            publishAlertModeToMqtt()
+        }
+    }
+    @Published var periodicRefreshEnabled: Bool {
+        didSet {
+            if oldValue != periodicRefreshEnabled {
+                UserDefaults.standard.set(periodicRefreshEnabled, forKey: "periodicRefreshEnabled")
+                publishPeriodicRefreshToMqtt()
+            }
+        }
+    }
+    @Published var photoOnAlertEnabled: Bool {
+        didSet {
+            if oldValue != photoOnAlertEnabled {
+                UserDefaults.standard.set(photoOnAlertEnabled, forKey: "photoOnAlertEnabled")
+                publishPhotoOnAlertToMqtt()
+            }
         }
     }
     @Published var alertPresentationMode: AlertPresentationMode = .ringUntilDismissed
+    @Published var autoDismissSeconds: Int {
+        didSet {
+            UserDefaults.standard.set(autoDismissSeconds, forKey: "autoDismissSeconds")
+        }
+    }
     @Published var activeAlert: AlertEvent? = nil
     @Published var alertRingEnabled: Bool = false
     @Published var graphMinutes: Int = 60
+    
+    // Camera Image State
+    @Published var cameraImage: UIImage? = nil
+    @Published var lastImageTimestampMs: Int64 = 0
+    @Published var secondsUntilNextImage: Int = 300
 
-    private var statusTask: Task<Void, Never>? = nil
-    private var historyTask: Task<Void, Never>? = nil
+    private var mqtt: CocoaMQTT? = nil
+    private var countdownTimer: Timer? = nil
     private var alertAutoStopTask: Task<Void, Never>? = nil
     private var alertPlayer: AVAudioPlayer? = nil
     private var lastAlertSignature: String? = nil
@@ -78,121 +137,283 @@ class AppState: ObservableObject {
     private static func loadAlertTriggerMode() -> AlertTriggerMode {
         guard let rawValue = UserDefaults.standard.string(forKey: Self.alertTriggerModeDefaultsKey),
               let mode = AlertTriggerMode(rawValue: rawValue) else {
-            return .leavingThreshold
+            return .stateChange
         }
-
         return mode
     }
 
     init() {
-        alertTriggerMode = Self.loadAlertTriggerMode()
+        self.alertTriggerMode = Self.loadAlertTriggerMode()
+        self.mqttHost = UserDefaults.standard.string(forKey: "mqttHost") ?? "fd74af6a042440c3a7c395703c30d39f.s1.eu.hivemq.cloud"
+        self.mqttPort = UserDefaults.standard.integer(forKey: "mqttPort") != 0 ? UserDefaults.standard.integer(forKey: "mqttPort") : 8883
+        self.mqttUsername = UserDefaults.standard.string(forKey: "mqttUsername") ?? "Phone"
+        self.mqttPassword = UserDefaults.standard.string(forKey: "mqttPassword") ?? "123Abcdef"
+        self.thresholdCm = UserDefaults.standard.integer(forKey: "thresholdCm") != 0 ? UserDefaults.standard.integer(forKey: "thresholdCm") : 46
+        self.periodicRefreshEnabled = UserDefaults.standard.object(forKey: "periodicRefreshEnabled") != nil ? UserDefaults.standard.bool(forKey: "periodicRefreshEnabled") : true
+        self.photoOnAlertEnabled = UserDefaults.standard.object(forKey: "photoOnAlertEnabled") != nil ? UserDefaults.standard.bool(forKey: "photoOnAlertEnabled") : true
+        self.autoDismissSeconds = UserDefaults.standard.integer(forKey: "autoDismissSeconds") != 0 ? UserDefaults.standard.integer(forKey: "autoDismissSeconds") : 30
+        
+        connectMqtt()
+        fetchImageFromCloudflare() // Initial camera load
+        startCountdownTimer()
+    }
+
+    deinit {
+        countdownTimer?.invalidate()
     }
 
     func startPolling() async {
-        stopPolling()
-        triggerLocalNetworkPrivacyPrompt()
-        
-        statusTask = Task { [weak self] in
-            guard let self = self else { return }
-            while !Task.isCancelled {
-                await self.pollStatus()
-                try? await Task.sleep(nanoseconds: UInt64(self.statusPollMs()) * 1_000_000)
-            }
-        }
-
-        historyTask = Task { [weak self] in
-            guard let self = self else { return }
-            while !Task.isCancelled {
-                await self.pollHistory()
-                try? await Task.sleep(nanoseconds: UInt64(self.historyPollMs()) * 1_000_000)
-            }
-        }
+        connectMqtt()
+        startCountdownTimer()
     }
 
     func stopPolling() {
-        statusTask?.cancel()
-        historyTask?.cancel()
-        statusTask = nil
-        historyTask = nil
+        disconnectMqtt()
+        countdownTimer?.invalidate()
     }
 
     func refreshPollingIfNeeded(isActive: Bool) async {
         if isActive {
-            await startPolling()
+            connectMqtt()
         } else {
-            stopPolling()
+            disconnectMqtt()
         }
     }
 
-    func statusPollMs() -> Int { 
-        // poll slower when disconnected to give the network/ESP32 room to recover
-        connected ? 500 : 2000 
+    // MARK: - MQTT Connection
+    func connectMqtt() {
+        disconnectMqtt()
+
+        let clientID = "AlertCore-iOS-" + UUID().uuidString.prefix(6)
+        let client = CocoaMQTT(clientID: clientID, host: mqttHost, port: UInt16(mqttPort))
+        client.username = mqttUsername
+        client.password = mqttPassword
+        client.keepAlive = 60
+        client.enableSSL = true
+        client.allowUntrustCACert = true
+
+        client.didConnectAck = { [weak self] mqtt, ack in
+            guard let self = self else { return }
+            Task { @MainActor in
+                if ack == .accept {
+                    self.connected = true
+                    self.statusMessage = "Connected"
+                    mqtt.subscribe("alertcore/status")
+                    mqtt.subscribe("alertcore/camera/image")
+                    
+                    self.publishAlertModeToMqtt()
+                    self.publishPeriodicRefreshToMqtt()
+                    self.publishPhotoOnAlertToMqtt()
+                } else {
+                    self.connected = false
+                    self.statusMessage = "Refused: \(ack)"
+                }
+            }
+        }
+
+        client.didDisconnect = { [weak self] mqtt, err in
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.connected = false
+                self.statusMessage = "Disconnected: \(err?.localizedDescription ?? "unknown")"
+            }
+        }
+
+        client.didReceiveMessage = { [weak self] mqtt, message, id in
+            guard let self = self else { return }
+            Task { @MainActor in
+                if message.topic == "alertcore/status" {
+                    self.handleStatusMessage(payload: message.string ?? "")
+                } else if message.topic == "alertcore/camera/image" {
+                    self.handleImageMessage(payload: message.string ?? "")
+                }
+            }
+        }
+
+        self.mqtt = client
+        let success = client.connect()
+        if !success {
+            statusMessage = "Connection failed to initiate"
+        } else {
+            statusMessage = "Connecting..."
+        }
     }
-    func historyPollMs() -> Int { connected ? 3000 : 10000 }
 
-    func pollStatus() async {
+    func disconnectMqtt() {
+        mqtt?.disconnect()
+        mqtt = nil
+    }
+
+    // MARK: - Message Handling
+    private func handleStatusMessage(payload: String) {
+        guard let data = payload.data(using: .utf8) else { return }
         do {
-            let s = try await NetworkClient.shared.fetchStatus(ip: ip, port: port)
-            connected = true
-            statusMessage = "Connected"
-            distanceCm = s.distanceCm >= 0 ? s.distanceCm : nil
-            objectPresent = s.objectPresent
+            let decoder = JSONDecoder()
+            let status = try decoder.decode(StatusDto.self, from: data)
 
-            let hasThresholdAlert = s.alertTransition && shouldPresentThresholdAlert(for: s)
-            let hasAlert = hasThresholdAlert || (s.manualTransition ?? false)
+            self.distanceCm = status.distanceCm >= 0 ? status.distanceCm : nil
+            self.objectPresent = status.objectPresent
+            
+            if let threshold = status.thresholdCm {
+                self.thresholdCm = threshold
+            }
+
+            if let zones = status.zones {
+                self.zonesCm = zones
+            }
+
+            if let pr = status.periodicRefresh {
+                self.periodicRefreshEnabled = (pr != 0)
+            }
+
+            if let poa = status.photoOnAlert {
+                self.photoOnAlertEnabled = (poa != 0)
+            }
+
+            // Append sample to local history for chart rendering
+            if status.distanceCm >= 0 {
+                let sample = DistanceSampleDto(timestampMs: Int64(Date().timeIntervalSince1970 * 1000), distanceCm: status.distanceCm)
+                self.history.append(sample)
+                if self.history.count > 3600 {
+                    self.history.removeFirst(self.history.count - 3600)
+                }
+            }
+
+            let hasThresholdAlert = status.alertTransition
+            let hasManualAlert = status.manualTransition ?? false
+            let hasAlert = hasThresholdAlert || hasManualAlert
+
             if hasAlert {
                 let message: String
                 if hasThresholdAlert {
-                    message = s.objectPresent ? "Object entered threshold at \(s.distanceCm) cm" : "Object exited threshold range"
+                    message = status.objectPresent ? "Object entered threshold at \(status.distanceCm) cm" : "Object exited threshold range"
                 } else {
                     message = "Manual trigger pressed"
                 }
-                let eventTimestampMs = s.timestampMs ?? Int64(Date().timeIntervalSince1970 * 1000)
+                let eventTimestampMs = status.timestampMs ?? Int64(Date().timeIntervalSince1970 * 1000)
                 handleAlert(
                     message: message,
-                    signature: "\(hasThresholdAlert ? "alert" : "manual"):\(s.objectPresent):\(s.distanceCm)",
+                    signature: "\(hasThresholdAlert ? "alert" : "manual"):\(status.objectPresent):\(status.distanceCm)",
                     timestampMs: eventTimestampMs
                 )
+                
+                // Fetch a new image on alert if the toggle is enabled
+                if photoOnAlertEnabled {
+                    fetchImageFromCloudflare()
+                }
             }
         } catch {
-            connected = false
-            statusMessage = "Disconnected: \(error.localizedDescription)"
+            print("Failed to decode status MQTT payload: \(error)")
         }
     }
 
-    func pollHistory() async {
-        do {
-            let samples = try await NetworkClient.shared.fetchHistory(ip: ip, port: port, minutes: graphMinutes)
-            self.history = samples
-        } catch {
-            // keep previous history on error
+    private func handleImageMessage(payload: String) {
+        fetchImageFromCloudflare()
+    }
+
+    // MARK: - Commands
+    func updateThreshold(_ t: Int) {
+        guard let client = mqtt, client.isConnected else {
+            statusMessage = "Cannot update threshold: MQTT disconnected"
+            return
+        }
+        let payload = "{\"thresholdCm\":\(t)}"
+        client.publish("alertcore/cmd/threshold", withString: payload, qos: .qos1)
+        self.thresholdCm = t
+        statusMessage = "Threshold updated to \(t) cm"
+    }
+
+    func publishAlertModeToMqtt() {
+        guard let client = mqtt, client.isConnected else { return }
+        let modeInt = alertTriggerMode == .stateChange ? 0 : 1
+        let payload = "{\"alertMode\":\(modeInt)}"
+        client.publish("alertcore/cmd/alert_mode", withString: payload, qos: .qos1)
+        print("[MQTT] Alert mode synced: \(alertTriggerMode.rawValue)")
+    }
+
+    func publishPeriodicRefreshToMqtt() {
+        guard let client = mqtt, client.isConnected else { return }
+        let val = periodicRefreshEnabled ? 1 : 0
+        let payload = "{\"periodicRefresh\":\(val)}"
+        client.publish("alertcore/cmd/periodic_refresh", withString: payload, qos: .qos1)
+        print("[MQTT] Periodic refresh synced: \(periodicRefreshEnabled)")
+    }
+
+    func publishPhotoOnAlertToMqtt() {
+        guard let client = mqtt, client.isConnected else { return }
+        let val = photoOnAlertEnabled ? 1 : 0
+        let payload = "{\"photoOnAlert\":\(val)}"
+        client.publish("alertcore/cmd/photo_on_alert", withString: payload, qos: .qos1)
+        print("[MQTT] Photo on alert synced: \(photoOnAlertEnabled)")
+    }
+
+    func triggerManualCapture() {
+        guard let client = mqtt, client.isConnected else {
+            statusMessage = "Cannot capture: MQTT disconnected"
+            return
+        }
+        let payload: [UInt8] = [1]
+        client.publish("alertcore/cmd/capture", withRawPayload: payload, qos: .qos1)
+        statusMessage = "Manual capture command sent"
+    }
+
+    // MARK: - Cloudflare Image Fetch
+    func fetchImageFromCloudflare() {
+        guard let url = URL(string: "https://alertcore-d2.aayanshaikh770.workers.dev/latest.jpg") else { return }
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                
+                var imageTimestamp = Int64(Date().timeIntervalSince1970 * 1000)
+                if let httpResponse = response as? HTTPURLResponse,
+                   let lastModifiedStr = httpResponse.value(forHTTPHeaderField: "Last-Modified") {
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "E, d MMM yyyy HH:mm:ss z"
+                    dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+                    if let parsedDate = dateFormatter.date(from: lastModifiedStr) {
+                        imageTimestamp = Int64(parsedDate.timeIntervalSince1970 * 1000)
+                    }
+                }
+                
+                if let uiImage = UIImage(data: data) {
+                    await MainActor.run {
+                        self.cameraImage = uiImage
+                        self.lastImageTimestampMs = imageTimestamp
+                        self.updateSecondsUntilNextImage()
+                    }
+                }
+            } catch {
+                print("Failed to fetch camera image from Cloudflare: \(error)")
+            }
         }
     }
 
-    func updateThreshold(_ t: Int) async {
-        do {
-            let s = try await NetworkClient.shared.updateThreshold(ip: ip, port: port, threshold: t)
-            // update local state
-            distanceCm = s.distanceCm >= 0 ? s.distanceCm : nil
-            objectPresent = s.objectPresent
-        } catch {
-            // ignore
+    private func startCountdownTimer() {
+        countdownTimer?.invalidate()
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.updateSecondsUntilNextImage()
+            }
         }
     }
-
-    private func shouldPresentThresholdAlert(for status: StatusDto) -> Bool {
-        guard status.alertTransition else { return false }
-
-        switch alertTriggerMode {
-        case .leavingThreshold:
-            return !status.objectPresent
-        case .enteringThreshold:
-            return status.objectPresent
-        case .both:
-            return true
+    
+    private func updateSecondsUntilNextImage() {
+        guard periodicRefreshEnabled else {
+            self.secondsUntilNextImage = -1
+            return
         }
+        guard lastImageTimestampMs > 0 else {
+            self.secondsUntilNextImage = 300
+            return
+        }
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let ageSeconds = Int((nowMs - lastImageTimestampMs) / 1000)
+        let remaining = 300 - ageSeconds
+        self.secondsUntilNextImage = max(0, min(300, remaining))
     }
 
+    // MARK: - Alerts Management
     func acknowledgeActiveAlert() {
         activeAlert = nil
         alertRingEnabled = false
@@ -238,7 +459,7 @@ class AppState: ObservableObject {
             alertAutoStopTask?.cancel()
             alertAutoStopTask = Task { [weak self] in
                 guard let self = self else { return }
-                try? await Task.sleep(nanoseconds: UInt64(self.alertAutoDismissSeconds * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(TimeInterval(self.autoDismissSeconds) * 1_000_000_000))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self.stopAlertTone()
@@ -444,7 +665,7 @@ class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Notifications
+    // MARK: - Notifications Auth
     func initializeNotificationAuthorization() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
@@ -465,7 +686,6 @@ class AppState: ObservableObject {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             Task { @MainActor in
-                // keep toggle in sync with actual granted state
                 self.notificationsEnabled = granted
                 completion?(granted)
                 if let error = error {
@@ -475,55 +695,17 @@ class AppState: ObservableObject {
         }
     }
 
-    func scheduleTestNotification(title: String = "AlertCore Test", body: String = "This is a test notification.") {
-        let center = UNUserNotificationCenter.current()
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
-        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-        center.add(req) { error in
-            if let e = error {
-                print("Failed to schedule test notification: \(e)")
-            }
-        }
-    }
-
     func sendTestNotification() {
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            Task { @MainActor in
-                switch settings.authorizationStatus {
-                case .authorized, .provisional, .ephemeral:
-                    self.scheduleTestNotification()
-                case .notDetermined:
-                    self.requestNotificationAuthorization { granted in
-                        if granted {
-                            self.scheduleTestNotification()
-                        }
-                    }
-                default:
-                    self.notificationsEnabled = false
-                }
-            }
-        }
-    }
-
-    /// Triggers the iOS Local Network privacy prompt by starting a dummy browse.
-    private func triggerLocalNetworkPrivacyPrompt() {
-        let browser = NWBrowser(for: .bonjour(type: "_http._tcp", domain: nil), using: .tcp)
-        browser.stateUpdateHandler = { state in
-            if case .failed = state {
-                browser.cancel()
-            }
-        }
-        browser.start(queue: .main)
+        let content = UNMutableNotificationContent()
+        content.title = "AlertCore Test"
+        content.body = "This is a test alert notification."
+        content.sound = alertNotificationSound()
         
-        // cancel after a short delay; the prompt will have been triggered
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            browser.cancel()
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("Failed to send test notification: \(error)")
+            }
         }
     }
 }
@@ -559,10 +741,10 @@ struct AlertEvent: Identifiable {
 
 extension AppState {
     var cameraPageUrl: String {
-        return "http://\(ip):\(port)/"
+        return "https://alertcore-d2.aayanshaikh770.workers.dev/latest.jpg"
     }
 
     var streamUrl: String {
-        return "http://\(ip):\(port + 1)/stream"
+        return "https://alertcore-d2.aayanshaikh770.workers.dev/latest.jpg"
     }
 }

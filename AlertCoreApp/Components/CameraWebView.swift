@@ -7,16 +7,9 @@ struct CameraWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let prefs = WKPreferences()
-        
-        let pagePrefs = WKWebpagePreferences()
-        pagePrefs.allowsContentJavaScript = true
-        
+        prefs.javaScriptEnabled = true
         let cfg = WKWebViewConfiguration()
         cfg.preferences = prefs
-        cfg.defaultWebpagePreferences = pagePrefs
-        cfg.allowsInlineMediaPlayback = true
-        cfg.mediaTypesRequiringUserActionForPlayback = []
-        
         let web = WKWebView(frame: .zero, configuration: cfg)
         web.allowsBackForwardNavigationGestures = false
         // allow scrolling inside the web view; the outer SwiftUI view also supports scrolling
