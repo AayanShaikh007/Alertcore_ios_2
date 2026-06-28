@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
-import UserNotifications
+@preconcurrency import UserNotifications
 import AVFoundation
 import CocoaMQTT
 
@@ -488,20 +488,20 @@ class AppState: ObservableObject {
                 content.sound = sound
 
                 if persistent {
-                    self.schedulePersistentRingNotifications(content: content)
+                    await self.schedulePersistentRingNotifications(content: content)
                 } else {
                     let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-                    center.add(request) { error in
-                        if let error = error {
-                            print("Failed to deliver alert notification: \(error)")
-                        }
+                    do {
+                        try await center.add(request)
+                    } catch {
+                        print("Failed to deliver alert notification: \(error)")
                     }
                 }
             }
         }
     }
 
-    private func schedulePersistentRingNotifications(content: UNMutableNotificationContent) {
+    private func schedulePersistentRingNotifications(content: UNMutableNotificationContent) async {
         let center = UNUserNotificationCenter.current()
 
         if !currentAlertNotificationIds.isEmpty {
@@ -511,29 +511,29 @@ class AppState: ObservableObject {
         }
 
         let immediateRequest = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        center.add(immediateRequest) { error in
-            if let error = error {
-                print("Failed to deliver immediate alert notification: \(error)")
-            }
+        do {
+            try await center.add(immediateRequest)
+        } catch {
+            print("Failed to deliver immediate alert notification: \(error)")
         }
         currentAlertNotificationIds.append(immediateRequest.identifier)
 
         for offset in stride(from: 10, through: 300, by: 10) {
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(offset), repeats: false)
             let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-            center.add(request) { error in
-                if let error = error {
-                    print("Failed to schedule repeated alert notification: \(error)")
-                }
+            do {
+                try await center.add(request)
+            } catch {
+                print("Failed to schedule repeated alert notification: \(error)")
             }
             currentAlertNotificationIds.append(request.identifier)
         }
 
         let repeatingRequest = UNNotificationRequest(identifier: persistentAlertNotificationId, content: content, trigger: UNTimeIntervalNotificationTrigger(timeInterval: 60, repeats: true))
-        center.add(repeatingRequest) { error in
-            if let error = error {
-                print("Failed to schedule repeating persistent alert notification: \(error)")
-            }
+        do {
+            try await center.add(repeatingRequest)
+        } catch {
+            print("Failed to schedule repeating persistent alert notification: \(error)")
         }
         currentAlertNotificationIds.append(persistentAlertNotificationId)
     }
